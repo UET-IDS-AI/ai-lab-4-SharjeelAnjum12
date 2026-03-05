@@ -82,7 +82,28 @@ def gradient_descent_linreg(
     Returns GDResult with final theta, per-epoch losses, and theta trajectory.
     """
     # TODO: implement
-    raise NotImplementedError
+    n, d = X.shape
+
+    y = y.reshape(-1)
+
+    if theta0 is None:
+        theta = np.zeros(d)
+    else:
+        theta = theta0.copy()
+
+    losses = np.zeros(epochs)
+    thetas = np.zeros((epochs, d))
+
+    for t in range(epochs):
+        y_pred = X @ theta
+        error = y_pred - y
+        loss = np.mean(error ** 2)
+        losses[t] = loss
+        thetas[t] = theta   # store BEFORE update
+        gradient = (1/n) * (X.T @ error)
+        theta = theta - lr * gradient
+
+    return GDResult(theta=theta, losses=losses, thetas=thetas)
 
 
 def visualize_gradient_descent(
@@ -107,7 +128,29 @@ def visualize_gradient_descent(
     Inspired by AML lecture gradient descent trajectory visualization. :contentReference[oaicite:1]{index=1}
     """
     # TODO: implement using gradient_descent_linreg and a synthetic dataset
-    raise NotImplementedError
+    rng = np.random.default_rng(seed)
+
+    n = 80
+
+    X_feature = rng.normal(size=(n, 1))
+
+    true_theta0 = 2.0
+    true_theta1 = 3.0
+
+    noise = rng.normal(scale=0.5, size=n)
+
+    y = true_theta0 + true_theta1 * X_feature.reshape(-1) + noise
+
+    X = add_bias_column(X_feature)
+
+    result = gradient_descent_linreg(X, y, lr=lr, epochs=epochs)
+
+    return {
+        "theta_path": result.thetas[:, :2],
+        "losses": result.losses,
+        "X": X,
+        "y": y,
+    }
 
 
 # =========================
@@ -127,7 +170,45 @@ def diabetes_linear_gd(
       train_mse, test_mse, train_r2, test_r2, theta
     """
     # TODO: implement
-    raise NotImplementedError
+    # Load dataset
+    data = datasets.load_diabetes()
+    X = data.data
+    y = data.target
+
+    # Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=seed
+    )
+
+    # Standardize features
+    X_train_std, X_test_std, _, _ = standardize_train_test(X_train, X_test)
+
+    # Add bias column
+    X_train_bias = add_bias_column(X_train_std)
+    X_test_bias = add_bias_column(X_test_std)
+
+    # Train using gradient descent
+    result = gradient_descent_linreg(
+        X_train_bias,
+        y_train,
+        lr=lr,
+        epochs=epochs
+    )
+
+    theta = result.theta
+
+    # Predictions
+    y_train_pred = X_train_bias @ theta
+    y_test_pred = X_test_bias @ theta
+
+    # Metrics
+    train_mse = mse(y_train, y_train_pred)
+    test_mse = mse(y_test, y_test_pred)
+
+    train_r2 = r2_score(y_train, y_train_pred)
+    test_r2 = r2_score(y_test, y_test_pred)
+
+    return train_mse, test_mse, train_r2, test_r2, theta
 
 
 # =========================
@@ -149,7 +230,43 @@ def diabetes_linear_analytical(
       train_mse, test_mse, train_r2, test_r2, theta
     """
     # TODO: implement
-    raise NotImplementedError
+    # Load dataset
+    data = datasets.load_diabetes()
+    X = data.data
+    y = data.target
+
+    # Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=seed
+    )
+
+    # Standardize
+    X_train_std, X_test_std, _, _ = standardize_train_test(X_train, X_test)
+
+    # Add bias
+    X_train_bias = add_bias_column(X_train_std)
+    X_test_bias = add_bias_column(X_test_std)
+
+    # Normal equation with ridge stabilization
+    n_features = X_train_bias.shape[1]
+
+    XtX = X_train_bias.T @ X_train_bias
+    ridge = ridge_lambda * np.eye(n_features)
+
+    theta = np.linalg.inv(XtX + ridge) @ X_train_bias.T @ y_train
+
+    # Predictions
+    y_train_pred = X_train_bias @ theta
+    y_test_pred = X_test_bias @ theta
+
+    # Metrics
+    train_mse = mse(y_train, y_train_pred)
+    test_mse = mse(y_test, y_test_pred)
+
+    train_r2 = r2_score(y_train, y_train_pred)
+    test_r2 = r2_score(y_test, y_test_pred)
+
+    return train_mse, test_mse, train_r2, test_r2, theta
 
 
 # =========================
@@ -176,4 +293,39 @@ def diabetes_compare_gd_vs_analytical(
     (Cosine similarity near 1 means parameters align.)
     """
     # TODO: implement
-    raise NotImplementedError
+    # Run Gradient Descent solution
+    gd_train_mse, gd_test_mse, gd_train_r2, gd_test_r2, theta_gd = diabetes_linear_gd(
+        lr=lr,
+        epochs=epochs,
+        test_size=test_size,
+        seed=seed
+    )
+
+    # Run Analytical solution
+    an_train_mse, an_test_mse, an_train_r2, an_test_r2, theta_an = diabetes_linear_analytical(
+        test_size=test_size,
+        seed=seed
+    )
+
+    # L2 difference between parameters
+    theta_l2_diff = float(np.linalg.norm(theta_gd - theta_an))
+
+    # Cosine similarity between parameters
+    dot_product = np.dot(theta_gd, theta_an)
+    norm_product = np.linalg.norm(theta_gd) * np.linalg.norm(theta_an)
+    theta_cosine_sim = float(dot_product / norm_product) if norm_product != 0 else 0.0
+
+    # Absolute differences in metrics
+    train_mse_diff = float(abs(gd_train_mse - an_train_mse))
+    test_mse_diff = float(abs(gd_test_mse - an_test_mse))
+    train_r2_diff = float(abs(gd_train_r2 - an_train_r2))
+    test_r2_diff = float(abs(gd_test_r2 - an_test_r2))
+
+    return {
+        "theta_l2_diff": theta_l2_diff,
+        "train_mse_diff": train_mse_diff,
+        "test_mse_diff": test_mse_diff,
+        "train_r2_diff": train_r2_diff,
+        "test_r2_diff": test_r2_diff,
+        "theta_cosine_sim": theta_cosine_sim,
+    }
